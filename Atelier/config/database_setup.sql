@@ -28,6 +28,21 @@ CREATE TABLE IF NOT EXISTS odds_history (
     recorded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+
+CREATE TABLE matches_history (
+    match_id BIGINT,
+    competition TEXT,
+    joueur1 TEXT,
+    joueur2 TEXT,
+    start_time TIMESTAMP WITH TIME ZONE,
+    aces_data JSONB,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (match_id, updated_at)
+);
+
+
+
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_matches_match_id ON matches(match_id);
 CREATE INDEX IF NOT EXISTS idx_ace_markets_match_id ON ace_markets(match_id);
