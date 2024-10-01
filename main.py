@@ -1,42 +1,21 @@
-import logging
-from apscheduler.schedulers.background import BackgroundScheduler
-from betclic.scraper import fetch_data
-from betclic.data import DataManager
-from betclic.analysis import make_decisions
-
-# Configure logging
-logging.basicConfig(level=logging.INFO, 
-                    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+from betclic.scraper import MatchDataManager
 
 def main():
-    """Main function to run the scraping and decision-making process."""
-    data_manager = DataManager()
+    manager = MatchDataManager()
 
-    # Initial data fetch
-    initial_data = fetch_data()
-    if initial_
-        data_manager.store_data(initial_data)
+    # Étape 1: Récupérer les IDs des matchs
+    match_ids = manager.get_match_ids()
 
-    # Schedule data fetching and processing
-    scheduler = BackgroundScheduler()
-    scheduler.add_job(run_data_pipeline, 'interval', minutes=5, args=[data_manager])
-    scheduler.start()
+    # Optionnel: Sauvegarder les IDs dans un fichier JSON
+    manager.save_to_file(match_ids, 'match_ids.json')
 
-    # Keep the script running
-    try:
-        while True:
-            pass  # You can add other tasks here if needed
-    except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+    # Étape 2: Récupérer les détails des compétitions et des joueurs
+    match_details = manager.get_competition_and_contestants(match_ids)
+    manager.save_to_file(match_details, 'match_details.json')
 
-def run_data_pipeline(data_manager: DataManager):
-    """Fetches, compares, and makes decisions based on new data."""
-    new_data = fetch_data()
-    if new_
-        changes = data_manager.compare_data(new_data)
-        if changes:
-            make_decisions(changes)
-        data_manager.store_data(new_data)
+    # Étape 3: Récupérer les informations des marchés sur les aces
+    ace_market_data = manager.get_ace_markets(match_ids)
+    manager.save_to_file(ace_market_data, 'ace_market_data.json')
 
 if __name__ == "__main__":
     main()
