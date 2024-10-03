@@ -59,7 +59,7 @@ def main_task():
                         match_changes['joueur_1'] = new_match_data.get('contestants', {}).get('joueur 1', 'Unknown')
                         match_changes['joueur_2'] = new_match_data.get('contestants', {}).get('joueur 2', 'Unknown')
                         logging.info(
-                            f"Odds changed for match : {new_match_info['match_id']} - {new_match_info['joueur_1']} vs {new_match_info['joueur_2']} detected")
+                            f"Odds changed for match : {match_changes['match_id']} - {match_changes['joueur_1']} vs {match_changes['joueur_2']} detected")
                         changes.append(match_changes)
                 else:
                     # This is a new match, add it to changes
