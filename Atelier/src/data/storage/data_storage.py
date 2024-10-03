@@ -106,20 +106,25 @@ class DataStorage:
                 odds_changes = []
                 previous_aces_data = None
                 for row in rows:
-                    current_aces_data = row[0]  # JSON data
-                    updated_at = row[1]
-                    if previous_aces_data:
-                        # Compare previous and current aces_data to find changes
-                        changes = self._find_aces_data_changes(previous_aces_data, current_aces_data)
-                        if changes:
-                            odds_changes.append({
-                                'changes': changes,
-                                'timestamp': updated_at
-                            })
-                    previous_aces_data = current_aces_data
+                    try:
+                        current_aces_data = row[0]  # JSON data
+                        updated_at = row[1]
+                        if previous_aces_data is not None:
+                            # Compare previous and current aces_data to find changes
+                            changes = self._find_aces_data_changes(previous_aces_data, current_aces_data)
+                            if changes:
+                                odds_changes.append({
+                                    'changes': changes,
+                                    'timestamp': updated_at
+                                })
+                        previous_aces_data = current_aces_data
+                    except Exception as row_error:
+                        logging.error(f"Error processing row for match {match_id}: {row_error}")
+                        # Continue to the next row
+                        continue
                 return odds_changes
         except Exception as e:
-            logger.error(f"Error while fetching odds changes: {e}")
+            logging.error(f"Error while fetching odds changes for match {match_id}: {e}")
             return []
         finally:
             self.db_pool.putconn(conn)
@@ -132,19 +137,44 @@ class DataStorage:
         - A list of changes found between the two datasets.
         """
         changes = []
-        for market_type in new_data:
-            old_market = old_data.get(market_type, [])
-            new_market = new_data[market_type]
-            for new_selection in new_market:
-                # Find the corresponding selection in old data
-                old_selection = next((item for item in old_market if item['name'] == new_selection['name']), None)
-                if old_selection and old_selection['odds'] != new_selection['odds']:
-                    changes.append({
-                        'market_type': market_type,
-                        'selection_name': new_selection['name'],
-                        'old_odds': old_selection['odds'],
-                        'new_odds': new_selection['odds']
-                    })
+        if not isinstance(old_data, dict) or not isinstance(new_data, dict):
+            logging.warning(f"Invalid data types: old_data is {type(old_data)}, new_data is {type(new_data)}")
+            return changes
+
+        for market_type, new_market in new_data.items():
+            old_market = old_data.get(market_type)
+
+            if new_market == "None" and old_market != "None":
+                changes.append({
+                    'market_type': market_type,
+                    'change': 'Market removed',
+                    'old_value': str(old_market),
+                    'new_value': 'None'
+                })
+            elif new_market != "None" and old_market == "None":
+                changes.append({
+                    'market_type': market_type,
+                    'change': 'Market added',
+                    'old_value': 'None',
+                    'new_value': str(new_market)
+                })
+            elif isinstance(new_market, list) and isinstance(old_market, list):
+                for new_selection in new_market:
+                    if not isinstance(new_selection, dict):
+                        continue
+
+                    old_selection = next((item for item in old_market if
+                                          isinstance(item, dict) and item.get('name') == new_selection.get('name')),
+                                         None)
+
+                    if old_selection and old_selection.get('odds') != new_selection.get('odds'):
+                        changes.append({
+                            'market_type': market_type,
+                            'selection_name': new_selection.get('name', 'Unknown'),
+                            'old_odds': old_selection.get('odds', 'Unknown'),
+                            'new_odds': new_selection.get('odds', 'Unknown')
+                        })
+
         return changes
 
     def close_pool(self) -> None:

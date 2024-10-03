@@ -15,12 +15,6 @@ from src.utils.logger import setup_logging
 
 
 def main_task():
-    # Load configuration
-    config = load_config()
-
-    # Setup logging
-    setup_logging(config['logging'])
-
     logging.info("Task started")
 
     # Initialize components
@@ -57,18 +51,31 @@ def main_task():
                 old_match_data = next(
                     (match for match in old_ace_markets_data if
                      match.get('match_id') == new_match_data.get('match_id')), None)
+
                 if old_match_data:
                     match_changes = json_comparator.compare_match_data(old_match_data, new_match_data)
                     if match_changes:
                         # Add player names to the change information
                         match_changes['joueur_1'] = new_match_data.get('contestants', {}).get('joueur 1', 'Unknown')
                         match_changes['joueur_2'] = new_match_data.get('contestants', {}).get('joueur 2', 'Unknown')
+                        logging.info(
+                            f"Odds changed for match : {new_match_info['match_id']} - {new_match_info['joueur_1']} vs {new_match_info['joueur_2']} detected")
                         changes.append(match_changes)
+                else:
+                    # This is a new match, add it to changes
+                    new_match_info = {
+                        'match_id': new_match_data.get('match_id'),
+                        'joueur_1': new_match_data.get('contestants', {}).get('joueur 1', 'Unknown'),
+                        'joueur_2': new_match_data.get('contestants', {}).get('joueur 2', 'Unknown'),
+                        'new_match': True,
+                        'aces_data': new_match_data.get('aces_data', {})
+                    }
+                    changes.append(new_match_info)
+                    logging.info(
+                        f"New match detected: {new_match_info['match_id']} - {new_match_info['joueur_1']} vs {new_match_info['joueur_2']}")
             except Exception as e:
                 logging.error(f"Error processing match {new_match_data.get('match_id', 'Unknown')}: {str(e)}")
                 continue
-
-
 
         # Save new data to file for next comparison
         with open('previous_ace_markets_data.json', 'w') as f:
@@ -89,8 +96,9 @@ def main_task():
                     odds_changes = storage.get_odds_changes(match_id)
                     latest_odds = storage.get_latest_odds(match_id)
                     if odds_changes:
-                        logging.info(f"Odds changes for match {match_id}: {odds_changes}")
-                        logging.info(f"Latest odds for match {match_id}: {latest_odds}")
+                        # logging.info(f"Odds changes for match {match_id}: {odds_changes}")
+                        # logging.info(f"Latest odds for match {match_id}: {latest_odds}")
+                        pass
                 else:
                     logging.warning(f"Invalid match_id for match: {match_data}")
             except Exception as e:
@@ -122,22 +130,59 @@ def log_sample_match_data(sample_match):
 
 
 def format_changes_for_email(changes):
-    content = "The following changes were detected in the ace markets:\n\n"
-    for change in changes:
-        content += f"Match ID: {change['match_id']}\n"
-        content += f"Players: {change['joueur_1']} vs {change['joueur_2']}\n"
-        for market, market_changes in change['changes'].items():
-            content += f"  Market: {market}\n"
-            for selection_change in market_changes:
-                content += f"    {selection_change['name']}: {selection_change['old_odds']} -> {selection_change['new_odds']}\n"
-        content += "\n"
-    return content
+    try:
+        content = "Ace Markets Update\n\n"
+
+        new_matches = [change for change in changes if change.get('new_match')]
+        existing_match_changes = [change for change in changes if not change.get('new_match')]
+
+        if new_matches:
+            content += "NEW MATCHES:\n"
+            content += "=" * 50 + "\n\n"
+            for match in new_matches:
+                content += f"Match ID: {match.get('match_id', 'Unknown')}\n"
+                content += f"Players: {match.get('joueur_1', 'Unknown')} vs {match.get('joueur_2', 'Unknown')}\n"
+                content += "Initial Odds:\n"
+                aces_data = match.get('aces_data', {})
+                if isinstance(aces_data, dict):
+                    for market, selections in aces_data.items():
+                        content += f"  {market}:\n"
+                        if isinstance(selections, list):
+                            for selection in selections:
+                                content += f"    {selection.get('name', 'Unknown')}: {selection.get('odds', 'Unknown')}\n"
+                        else:
+                            content += f"    Data not available\n"
+                else:
+                    content += "  Aces data not available\n"
+                content += "\n"
+            content += "\n"
+
+        if existing_match_changes:
+            content += "CHANGES IN EXISTING MATCHES:\n"
+            content += "=" * 50 + "\n\n"
+            for change in existing_match_changes:
+                content += f"Match ID: {change.get('match_id', 'Unknown')}\n"
+                content += f"Players: {change.get('joueur_1', 'Unknown')} vs {change.get('joueur_2', 'Unknown')}\n"
+                content += "Odds Changes:\n"
+                for market, market_changes in change.get('changes', {}).items():
+                    content += f"  {market}:\n"
+                    for selection_change in market_changes:
+                        content += f"    {selection_change.get('name', 'Unknown')}: {selection_change.get('old_odds', 'Unknown')} -> {selection_change.get('new_odds', 'Unknown')}\n"
+                content += "\n"
+
+        if not new_matches and not existing_match_changes:
+            content += "No changes or new matches detected in this update.\n"
+
+        return content
+    except Exception as e:
+        logging.error(f"Error in format_changes_for_email: {str(e)}")
+        return f"Error formatting email content. Raw data:\n\n{json.dumps(changes, indent=2, default=str)}"
 
 
 def run_scheduler():
-    schedule.every(10).minutes.do(main_task)
+    schedule.every(15).minutes.do(main_task)
 
-    logging.info(f"[{datetime.now()}] Scheduler started. Running tasks every 10 minutes.")
+    logging.info(f"[{datetime.now()}] Scheduler started. Running tasks every 1 minute.")
 
     last_error_time = None
     error_count = 0
@@ -148,7 +193,17 @@ def run_scheduler():
         logging.info(f"[{loop_start_time}] Starting loop {loop_count}")
 
         try:
-            schedule.run_pending()
+            # Run pending tasks and get the time until the next scheduled run
+            time_until_next_run = schedule.idle_seconds()
+            if time_until_next_run is None:
+                # No more scheduled tasks
+                break
+            elif time_until_next_run <= 0:
+                # It's time to run a task
+                schedule.run_pending()
+            else:
+                # Wait until the next scheduled run
+                time.sleep(time_until_next_run)
 
             # Reset error count if no errors for a while
             if last_error_time and (datetime.now() - last_error_time).total_seconds() > 3600:  # 1 hour
@@ -190,10 +245,6 @@ def run_scheduler():
         sys.stderr.flush()
 
         loop_count += 1
-
-        # Sleep for the remaining time to complete 10 minutes
-        time_to_sleep = max(0, 600 - loop_duration)  # 600 seconds = 10 minutes
-        time.sleep(time_to_sleep)
 
     logging.info(f"[{datetime.now()}] Scheduler stopped.")
 
